@@ -3,6 +3,8 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import json
 import sys
+import time
+import datetime
 
 def printUsage():
     print("\nUsage: python oc.py (app_id) (api_key) [-json]\n\n where -json will cause the program to spit out the raw JSON data from the API.  Omitting it gives you the regular interface.")
@@ -64,6 +66,78 @@ def tripsToString(jsonData):
             if (numTrips == 0):
                 print("\t\tNothing right now.\n\n")
 
+def assessSituation(jsonData):
+
+    timeFromNow = getNextBusTime(jsonData)
+
+    if (timeFromNow <= 5) and (timeFromNow >= 2):
+        state = 'SOON'
+    elif (timeFromNow == 1):
+        state = 'IMMINENT'
+    else:
+        state = 'NOT SOON'
+
+    return state
+
+
+def getNextBusTime(jsonData):
+
+    if(datetime.datetime.now().hour == 0):
+        currentTime = int(str(24) + str(datetime.datetime.now().minute))  #Must correct: between 12AM and 1AM, use hour "24" rather than "0"
+    elif(datetime.datetime.now().hour == 1):
+        currentTime = int(str(25) + str(datetime.datetime.now().minute))  # Must correct: between 1AM and 2AM, use hour "25" rather than "1"
+    else:
+        currentTime = int(str(datetime.datetime.now().hour) + str(datetime.datetime.now().minute))
+
+    if isinstance(jsonData["GetRouteSummaryForStopResult"]["Routes"]["Route"], list):
+        numRoutes = len(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"])
+    else:
+        numRoutes = 1;
+
+    if(numRoutes == 1):
+        if 'Trips' in jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"]:
+            numTrips = len(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"]["Trips"]["Trip"])
+        else:
+            numTrips = 0
+            currNextTime = 0
+
+        nextTime = 25000
+
+        for i in range(0, numTrips):
+
+            currNextTime = int(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"]["Trips"]["Trip"][i]["TripStartTime"].replace(':',''))
+            if (currentTime < currNextTime < nextTime) and (numTrips > 0):
+                nextTime = currNextTime
+
+    else:
+
+        nextTime = 25000
+
+        for i in range(0, numRoutes):
+
+
+
+            if 'Trips' in jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"][i]:
+                numTrips = len(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"][i]["Trips"])
+
+                for j in range(0, numTrips):
+                    currNextTime = int(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"][i]["Trips"][j]["TripStartTime"].replace(':', ''))
+                    #print(str(jsonData['GetRouteSummaryForStopResult']["Routes"]["Route"][i]["RouteNo"]) + ":  " + str(
+                    #    currNextTime) + "," + str(nextTime) + "," + str(numTrips))
+                if (currentTime < currNextTime < nextTime) and (numTrips > 0):
+                    nextTime = currNextTime
+
+            else:
+                numTrips = 0
+                currNextTime = 0
+
+
+    print("next time " + str(nextTime) + " and curr time " + str(currentTime))
+
+    timeFromNow = nextTime - currentTime
+
+    return timeFromNow
+
 if (len(sys.argv) != 3) and len(sys.argv) != 4:
     printUsage()
     sys.exit(-1)
@@ -76,29 +150,40 @@ appId = sys.argv[1]
 #apiKey = input("Please enter your OC Transpo API key.")
 apiKey = sys.argv[2]
 
-while(1):
 
-    stopNumber = input("Please type in the stop number.")
 
-    vals = {'appID'  : appId,
-            'apiKey' : apiKey,
-            'stopNo' : stopNumber,
-            'format' : 'json'} #Parameters to pass to URL
+#stopNumber = input("Please type in the stop number.")
+stopNumber = 6783
 
-    data = urllib.parse.urlencode(vals) #Some parsing and encoding magic
+vals = {'appID'  : appId,
+        'apiKey' : apiKey,
+        'stopNo' : stopNumber,
+        'format' : 'json'} #Parameters to pass to URL
 
-    data = data.encode('ascii')
+data = urllib.parse.urlencode(vals) #Some parsing and encoding magic
 
-    req= urllib.request.Request(url, data)
+data = data.encode('ascii')
 
-    with urllib.request.urlopen(req) as response:
-       rawData = json.loads(response.read())
+req= urllib.request.Request(url, data)
 
-    cleanData = formatData(rawData)
+with urllib.request.urlopen(req) as response:
+    rawData = json.loads(response.read())
 
-    if(len(sys.argv) == 3):
-        tripsToString(rawData)
-    elif(len(sys.argv) == 4 and sys.argv[3] == '-json'):
-        print(formatData(rawData))
+cleanData = formatData(rawData)
+
+state = 'UNDEFINED'
+
+if(len(sys.argv) == 3):
+    while(1):
+
+        req = urllib.request.Request(url, data)
+
+        with urllib.request.urlopen(req) as response:
+            rawData = json.loads(response.read())
+
+        print(assessSituation(rawData))
+        time.sleep(10)
+elif(len(sys.argv) == 4 and sys.argv[3] == '-json'):
+    print(formatData(rawData))
 
 # Message Ivor for app ID and API key
